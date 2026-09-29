@@ -14,6 +14,7 @@ pub mod panels;
 
 mod error;
 mod layout;
+mod log_console;
 
 pub use app::{GuiOptions, run};
 pub use error::WorkbenchError;

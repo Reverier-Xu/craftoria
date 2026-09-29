@@ -3,8 +3,8 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use woocraft::{
-  ActiveTheme, Button, ButtonVariants as _, DockArea, DockEvent, DockPlacement, Icon, IconName,
-  Size, StyleSized as _, TitleBar, Tooltip,
+  ActiveTheme, Button, ButtonVariants as _, Divider, DockArea, DockEvent, DockPlacement, Icon,
+  IconName, Size, StyleSized as _, TitleBar, Tooltip,
   gpui::{
     App, AppContext as _, Bounds, Context, Entity, FocusHandle, Focusable, IntoElement,
     ParentElement as _, Render, Styled as _, Window, WindowBounds, WindowOptions, div, px, size,
@@ -222,8 +222,6 @@ impl Workbench {
       .container_size(Self::STATUS_BAR_SIZE)
       .container_gap(Self::STATUS_BAR_SIZE)
       .items_center()
-      .border_t_1()
-      .border_color(cx.theme().border)
       .bg(cx.theme().background)
       .child(
         Button::new("craftoria-tips")
@@ -275,7 +273,9 @@ impl Render for Workbench {
         .size_full()
         .min_h_0()
         .child(TitleBar::new().title("Craftoria").theme_button(true))
+        .child(Divider::horizontal())
         .child(div().flex_1().min_h_0().child(self.dock_area.clone()))
+        .child(Divider::horizontal())
         .child(self.status_bar(cx)),
     )
   }
