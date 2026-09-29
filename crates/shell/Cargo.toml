@@ -1,0 +1,29 @@
+[package]
+name = "craftoria"
+
+authors.workspace      = true
+description.workspace  = true
+edition.workspace      = true
+homepage.workspace     = true
+license.workspace      = true
+publish.workspace      = true
+readme.workspace       = true
+repository.workspace   = true
+rust-version.workspace = true
+version.workspace      = true
+
+categories = ["multimedia"]
+keywords   = ["multimedia", "graphics", "audio", "video", "3d"]
+
+[[bin]]
+name = "craftoria"
+path = "src/main.rs"
+
+[dependencies]
+clap               = { workspace = true }
+thiserror          = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true
