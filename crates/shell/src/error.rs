@@ -6,4 +6,6 @@ pub(crate) enum ShellError {
   LogFilter(#[from] tracing_subscriber::filter::FromEnvError),
   #[error("failed to install the global tracing subscriber: {0}")]
   SubscriberInit(#[from] tracing::subscriber::SetGlobalDefaultError),
+  #[error(transparent)]
+  Workbench(#[from] craftoria_workbench::WorkbenchError),
 }

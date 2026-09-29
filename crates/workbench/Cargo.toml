@@ -1,0 +1,25 @@
+[package]
+name = "craftoria-workbench"
+
+authors.workspace      = true
+description            = "Desktop workbench application framework for craftoria: title bar, dock layout, status bar, and live log streaming."
+edition.workspace      = true
+homepage.workspace     = true
+license.workspace      = true
+publish.workspace      = true
+readme                 = "README.md"
+repository.workspace   = true
+rust-version.workspace = true
+version.workspace      = true
+
+[dependencies]
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+thiserror          = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
+woocraft           = { workspace = true }
+woocraft-terminal  = { workspace = true }
+
+[lints]
+workspace = true
