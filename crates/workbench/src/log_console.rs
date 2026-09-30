@@ -17,12 +17,16 @@
 //! color. Colors resolve through the active syntax theme so light/dark
 //! switching keeps working.
 
-use std::{cell::RefCell, ops::Range, rc::Rc, sync::Arc, time::Duration};
+use std::{
+  ops::Range,
+  sync::{Arc, Mutex},
+  time::Duration,
+};
 
 use tracing::Level;
 use woocraft::{
-  EditorBackend, EditorHighlighter, EditorSnapshot, HighlightTheme, Position, Rope,
-  RopeEditorSnapshot, RopeExt as _, ScrollbarMarker,
+  EditorBackend, EditorBackendCapabilities, EditorHighlighter, EditorSnapshot, HighlightTheme,
+  Rope, RopeEditorSnapshot, RopeExt as _, ScrollbarMarker,
   gpui::{FontWeight, HighlightStyle, rgb},
 };
 
@@ -117,7 +121,7 @@ fn parse_line(text: &str) -> Vec<(Range<u64>, SpanKind)> {
 /// editor backend (reader).
 #[derive(Clone, Default)]
 pub(crate) struct LogConsole {
-  inner: Rc<RefCell<Inner>>,
+  inner: Arc<Mutex<Inner>>,
 }
 
 #[derive(Default)]
@@ -136,7 +140,7 @@ impl LogConsole {
       return false;
     }
 
-    let mut inner = self.inner.borrow_mut();
+    let mut inner = self.lock();
 
     let mut chunk = String::new();
     for line in lines {
@@ -166,14 +170,11 @@ impl LogConsole {
     true
   }
 
-  /// Document position right after the last line, used to pin the viewport
-  /// to the newest record.
-  pub(crate) fn end_position(&self) -> Option<Position> {
-    let inner = self.inner.borrow();
-    if inner.line_count == 0 {
-      return None;
-    }
-    Some(inner.text.offset_to_position(inner.text.len()))
+  fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
+    self
+      .inner
+      .lock()
+      .unwrap_or_else(|poisoned| poisoned.into_inner())
   }
 }
 
@@ -228,16 +229,24 @@ impl woocraft::EditorHighlighterProvider for LogConsoleBackend {
 
 impl EditorBackend for LogConsoleBackend {
   fn revision(&self) -> u64 {
-    self.console.inner.borrow().revision
+    self.console.lock().revision
+  }
+
+  fn capabilities(&self) -> EditorBackendCapabilities {
+    EditorBackendCapabilities {
+      editable: false,
+      custom_line_numbers: false,
+      custom_highlighter: true,
+    }
   }
 
   fn snapshot(&self) -> Arc<dyn EditorSnapshot> {
-    let inner = self.console.inner.borrow();
+    let inner = self.console.lock();
     Arc::new(RopeEditorSnapshot::new(inner.revision, inner.text.clone()))
   }
 
   fn scrollbar_markers(&self) -> Vec<ScrollbarMarker> {
-    self.console.inner.borrow().markers.clone()
+    self.console.lock().markers.clone()
   }
 }
 
@@ -369,7 +378,7 @@ mod tests {
     let lines = vec![line; MAX_LINES as usize + 10];
     console.append(&lines);
 
-    let inner = console.inner.borrow();
+    let inner = console.lock();
     assert_eq!(inner.line_count, MAX_LINES);
     assert_eq!(inner.text.lines_len(), MAX_LINES as usize + 1);
   }
@@ -384,11 +393,11 @@ mod tests {
       message: "boom".to_string(),
     };
     console.append(&[error]);
-    let markers = console.inner.borrow().markers.clone();
+    let markers = console.lock().markers.clone();
     assert_eq!(markers.len(), 1);
     assert_eq!(markers[0].row, 0);
 
-    console.inner.borrow_mut().truncate_oldest(1);
-    assert!(console.inner.borrow().markers.is_empty());
+    console.lock().truncate_oldest(1);
+    assert!(console.lock().markers.is_empty());
   }
 }

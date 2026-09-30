@@ -28,11 +28,11 @@ serde_json = "1.0"
 thiserror = "2.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-woocraft = { version = "0.6", default-features = false, features = [
+woocraft = { version = "0.6.1", default-features = false, features = [
   "resources",
   "terminal",
 ] }
-woocraft-terminal = "0.6"
+woocraft-terminal = "0.6.1"
 
 [profile.release]
 codegen-units = 1

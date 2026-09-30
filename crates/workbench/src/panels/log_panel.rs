@@ -1,10 +1,11 @@
 //! The bottom-dock log panel: streams `tracing` records into a read-only
 //! code editor, highlighted in the `tracing_subscriber` console style.
 //!
-//! The editor supplies virtualization, search, selection, and scrollbar
-//! severity markers; the panel only forwards new records from the global log
-//! buffer into the console document and keeps the viewport pinned to the
-//! latest line.
+//! The editor supplies virtualization, incremental re-wrapping of appended
+//! batches, selection, search, and scrollbar severity markers; the panel
+//! only forwards new records from the global log buffer into the console
+//! document. Follow-output scrolling (pause on scroll-up, re-arm at the
+//! bottom) is handled by the editor itself.
 
 use std::time::Duration;
 
@@ -42,16 +43,14 @@ impl LogPanel {
         .code_editor("log")
         .backend(LogConsoleBackend::new(console.clone()))
         .read_only(true)
+        .follow_output(true)
         .line_number(false)
     });
 
-    cx.spawn_in(window, async move |this, window| {
+    cx.spawn(async move |this, cx| {
       loop {
-        window.background_executor().timer(POLL_INTERVAL).await;
-        if this
-          .update_in(window, |this, window, cx| this.sync(window, cx))
-          .is_err()
-        {
+        cx.background_executor().timer(POLL_INTERVAL).await;
+        if this.update(cx, |this, cx| this.sync(cx)).is_err() {
           break;
         }
       }
@@ -66,32 +65,15 @@ impl LogPanel {
     }
   }
 
-  /// Pull new records out of the global buffer, append them to the console
-  /// document, and pin the viewport to the latest line.
-  fn sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+  /// Pull new records out of the global buffer and append them to the
+  /// console document. The editor picks the changes up on its next render
+  /// (revision bump) and keeps the viewport pinned to the tail via
+  /// follow-output.
+  fn sync(&mut self, cx: &mut Context<Self>) {
     let drain = logs::global().drain_since(self.cursor);
     self.cursor = drain.cursor;
-    if !self.console.append(&drain.lines) {
-      return;
-    }
-
-    let Some(end) = self.console.end_position() else {
-      return;
-    };
-
-    // Scrolling to the end goes through the cursor, which grabs focus; save
-    // and restore the previously focused element so streaming logs never
-    // steal it.
-    let previous_focus = window
-      .focused(cx)
-      .filter(|handle| handle != &self.editor_state.read(cx).focus_handle(cx));
-    self.editor_state.update(cx, |state, cx| {
-      state.set_cursor_position(end, window, cx);
+    if self.console.append(&drain.lines) {
       cx.notify();
-    });
-    match previous_focus {
-      Some(handle) => window.focus(&handle, cx),
-      None => window.blur(cx),
     }
   }
 }
@@ -124,9 +106,13 @@ impl Focusable for LogPanel {
 
 impl Render for LogPanel {
   fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-    div()
-      .size_full()
-      .bg(cx.theme().editor_background)
-      .child(CodeEditor::new(&self.editor_state).h_full())
+    div().size_full().bg(cx.theme().editor_background).child(
+      CodeEditor::new(&self.editor_state)
+        .h_full()
+        .w_full()
+        .appearance(false)
+        .bordered(false)
+        .focus_bordered(false),
+    )
   }
 }
