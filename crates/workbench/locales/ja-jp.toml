@@ -1,6 +1,5 @@
 [tech.woooo.craft.status_bar]
 filter              = "フィルター：%{filter}"
-language            = "言語"
 log_lines           = "%{count} 行のログ"
 no_tasks            = "タスクなし"
 notification_center = "通知センター"

@@ -236,7 +236,10 @@ impl Focusable for DirListPanel {
 
 impl Render for DirListPanel {
   fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-    div().size_full().child(Table::new(&self.table_state))
+    // The table owns its surface and its header/cell rules. The default
+    // outer frame plus radius are chrome for a table embedded in a
+    // document, not for one filling its dock.
+    Table::new(&self.table_state).bordered(false)
   }
 }
 

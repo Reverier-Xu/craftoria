@@ -1,6 +1,5 @@
 [tech.woooo.craft.status_bar]
 filter              = "篩選器：%{filter}"
-language            = "語言"
 log_lines           = "%{count} 行日誌"
 no_tasks            = "尚無任務"
 notification_center = "通知中心"

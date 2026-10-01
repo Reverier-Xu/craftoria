@@ -4,8 +4,8 @@ use std::{path::PathBuf, time::Duration};
 
 use craftoria_exthost as exthost;
 use woocraft::{
-  ActiveTheme, Button, ButtonVariants as _, Divider, DockArea, DockEvent, DockPlacement,
-  DropdownMenu as _, Icon, IconName, PopupMenuItem, Size, StyleSized as _, TitleBar, Tooltip,
+  ActiveTheme, Button, ButtonVariants as _, Divider, DockArea, DockEvent, DockPlacement, Icon,
+  IconName, Size, StyleSized as _, TitleBar, Tooltip,
   gpui::{
     App, AppContext as _, Bounds, Context, Entity, FocusHandle, Focusable, IntoElement,
     ParentElement as _, Render, Styled as _, Window, WindowBounds, WindowOptions, div, px, size,
@@ -296,10 +296,15 @@ impl Workbench {
     }
   }
 
-  /// Switches the UI locale and persists the choice.
-  fn select_locale(&mut self, locale: &str, cx: &mut Context<Self>) {
-    exthost::i18n::set_locale(locale, cx);
-    self.settings.locale = Some(locale.to_string());
+  /// Remembers a locale the title bar already switched to.
+  ///
+  /// woocraft's own language button calls `set_locale` before invoking us, so
+  /// this re-applies the locale through the extension host — which also
+  /// invalidates the cached translations — and persists the choice.
+  fn remember_locale(&mut self, cx: &mut Context<Self>) {
+    let locale = exthost::i18n::locale();
+    exthost::i18n::set_locale(&locale, cx);
+    self.settings.locale = Some(locale);
     self.save_settings();
     cx.notify();
   }
@@ -316,35 +321,6 @@ impl Workbench {
 
   /// Standard status bar tier: the same medium container as the title bar.
   const STATUS_BAR_SIZE: Size = Size::Medium;
-
-  /// The locale picker: one checked entry per supported locale, switching
-  /// through [`Workbench::select_locale`].
-  fn language_picker(&self, cx: &mut Context<Self>) -> impl IntoElement {
-    let this = cx.entity();
-    Button::new("craftoria-language")
-      .flat()
-      .icon(Icon::new(IconName::LocalLanguage))
-      .tooltip(|window, cx| {
-        Tooltip::new(exthost::i18n::tr_static("status_bar.language")).build(window, cx)
-      })
-      .dropdown_menu(move |mut menu, _window, _cx| {
-        let current = exthost::i18n::locale();
-        for locale in exthost::i18n::SUPPORTED_LOCALES {
-          let label = exthost::i18n::locale_display_name(locale);
-          let target = locale.to_string();
-          let this = this.clone();
-          menu = menu.item(
-            PopupMenuItem::label(label)
-              .checked(locale == current)
-              .on_click(move |_, _window, cx| {
-                let target = target.clone();
-                this.update(cx, |this, cx| this.select_locale(&target, cx));
-              }),
-          );
-        }
-        menu
-      })
-  }
 
   fn status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
     let muted = cx.theme().muted_foreground;
@@ -394,7 +370,6 @@ impl Workbench {
             std::env::consts::ARCH
           )),
       )
-      .child(self.language_picker(cx))
       .child(
         Button::new("craftoria-notification-center")
           .flat()
@@ -419,7 +394,18 @@ impl Render for Workbench {
       v_flex()
         .size_full()
         .min_h_0()
-        .child(TitleBar::new().title("Craftoria").theme_button(true))
+        .child(
+          TitleBar::new()
+            .title("Craftoria")
+            .theme_button(true)
+            .language_button(true)
+            .on_language_button_click({
+              let this = cx.entity();
+              move |_event, _window, cx| {
+                this.update(cx, |this, cx| this.remember_locale(cx));
+              }
+            }),
+        )
         .child(Divider::horizontal())
         .child(div().flex_1().min_h_0().child(self.dock_area.clone()))
         .child(Divider::horizontal())

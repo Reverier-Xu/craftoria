@@ -61,7 +61,6 @@ impl Render for PlaceholderPanel {
       .justify_center()
       .gap_3()
       .p_4()
-      .bg(cx.theme().background)
       .child(
         Icon::new(IconName::Home)
           .with_size(Size::Large)

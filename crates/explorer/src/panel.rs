@@ -16,11 +16,11 @@ use std::path::PathBuf;
 
 use craftoria_exthost as exthost;
 use woocraft::{
-  ActiveTheme, Button, ButtonVariants as _, DockArea, Icon, IconName, Panel, PanelEvent, TreeEvent,
-  TreeItem, TreeState,
+  ActiveTheme, Button, ButtonVariants as _, DockArea, Icon, IconName, Panel, PanelEvent, Size,
+  StyleSized as _, TreeEvent, TreeItem, TreeState,
   gpui::{
     App, AppContext as _, ClickEvent, Context, EventEmitter, FocusHandle, Focusable, IntoElement,
-    ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window, div,
+    ParentElement, Render, SharedString, Styled, Subscription, WeakEntity, Window,
   },
   tree, v_flex,
 };
@@ -240,23 +240,25 @@ impl Render for ExplorerPanel {
       cx.defer_in(window, |this, _window, cx| this.load_pending(cx));
     }
 
-    let is_empty = self.tree_state.read(cx).model().is_empty();
-
-    v_flex()
-      .size_full()
-      .bg(cx.theme().background)
-      .p_2()
-      .child(if is_empty {
-        div()
-          .flex_1()
-          .flex()
-          .items_center()
-          .justify_center()
-          .text_color(cx.theme().muted_foreground)
-          .child(exthost::i18n::tr_static(keys::EMPTY))
-          .into_any_element()
-      } else {
-        tree(&self.tree_state).into_any_element()
-      })
+    if self.tree_state.read(cx).model().is_empty() {
+      // The centered-message shape woocraft's own panel placeholders use.
+      v_flex()
+        .size_full()
+        .my_6()
+        .items_center()
+        .justify_center()
+        .text_color(cx.theme().muted_foreground)
+        .child(exthost::i18n::tr_static(keys::EMPTY))
+        .into_any_element()
+    } else {
+      // The tree draws its own row insets and depth guides; the panel adds
+      // nothing but the standard container padding — the same shape
+      // woocraft's own explorer panel takes.
+      tree(&self.tree_state)
+        .min_w_0()
+        .overflow_hidden()
+        .container_padding(Size::Medium)
+        .into_any_element()
+    }
   }
 }
