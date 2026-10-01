@@ -14,8 +14,15 @@
 //! The timestamp and target are dimmed, the level is colored and bold
 //! (ERROR red, WARN orange, INFO green, DEBUG blue, TRACE purple — the hues
 //! `tracing_subscriber::fmt` uses), and the message keeps the default text
-//! color. Colors resolve through the active syntax theme so light/dark
+//! style. Colors resolve through the active syntax theme so light/dark
 //! switching keeps working.
+//!
+//! The highlighter contract requires the returned spans to tile the requested
+//! byte range exactly, with no gaps and no overlaps: the editor turns them
+//! into sequential text runs by length alone, so everything that is not a
+//! styled field (message text, separators, newlines, unparsed lines) is
+//! emitted as an identity [`gpui::HighlightStyle`] span that keeps the
+//! editor's base font and foreground color.
 
 use std::{
   ops::Range,
@@ -313,23 +320,43 @@ impl EditorHighlighter for TracingConsoleHighlighter {
   fn highlight_range(
     &self, _snapshot: &dyn EditorSnapshot, range: Range<u64>, theme: &HighlightTheme,
   ) -> Vec<(Range<u64>, HighlightStyle)> {
+    // The editor consumes these spans as an ordered run list, honoring only
+    // their lengths: absolute offsets are dropped and the runs are laid over
+    // the visible window back to back. The output therefore has to tile
+    // `range` exactly — a single gap shifts every following run onto the
+    // wrong bytes, and once the styled bytes run out the rest of the window
+    // falls back to the platform's default font and color. Gaps are filled
+    // with `HighlightStyle::default()`, an identity overlay that keeps the
+    // editor's base text style (default font, theme foreground).
     let first = self
       .lines
       .partition_point(|line| line.byte_range.end <= range.start);
 
     let mut highlights = Vec::new();
+    let mut cursor = range.start;
     for line in &self.lines[first..] {
       if line.byte_range.start >= range.end {
         break;
       }
       for (span, kind) in &line.spans {
-        if span.start < range.end
-          && span.end > range.start
-          && let Some(style) = Self::style(*kind, theme)
-        {
-          highlights.push((span.clone(), style));
+        let start = span.start.max(range.start);
+        let end = span.end.min(range.end);
+        if start >= end {
+          continue;
         }
+        let Some(style) = Self::style(*kind, theme) else {
+          continue;
+        };
+        if cursor < start {
+          highlights.push((cursor..start, HighlightStyle::default()));
+        }
+        highlights.push((start..end, style));
+        cursor = end;
       }
+    }
+
+    if cursor < range.end {
+      highlights.push((cursor..range.end, HighlightStyle::default()));
     }
     highlights
   }
@@ -337,6 +364,8 @@ impl EditorHighlighter for TracingConsoleHighlighter {
 
 #[cfg(test)]
 mod tests {
+  use woocraft::{HighlightThemeStyle, SyntaxColors, ThemeMode, ThemeTokens};
+
   use super::*;
 
   #[test]
@@ -364,6 +393,128 @@ mod tests {
   fn parse_line_rejects_non_console_lines() {
     assert!(parse_line("a continuation line of a message").is_empty());
     assert!(parse_line("").is_empty());
+  }
+
+  /// Build a theme with every syntax token populated, as the active woocraft
+  /// theme would.
+  fn test_theme() -> HighlightTheme {
+    HighlightTheme {
+      name: "test".to_string(),
+      appearance: ThemeMode::Dark,
+      style: HighlightThemeStyle {
+        syntax: SyntaxColors::from_tokens(&ThemeTokens::default()),
+        ..HighlightThemeStyle::default()
+      },
+    }
+  }
+
+  fn synced_highlighter(text: &str) -> TracingConsoleHighlighter {
+    let snapshot = RopeEditorSnapshot::new(1, Rope::from(text));
+    let mut highlighter = TracingConsoleHighlighter::default();
+    EditorHighlighter::sync(&mut highlighter, &snapshot, None);
+    highlighter
+  }
+
+  #[test]
+  fn highlight_range_tiles_the_whole_range() {
+    let first_line = "00:01.335 DEBUG craftoria::app: first\n";
+    let text = "00:01.335 DEBUG craftoria::app: first\n00:02.000  INFO craftoria: second\n";
+    let highlighter = synced_highlighter(text);
+    let range = 0..text.len() as u64;
+    let highlights = highlighter.highlight_range(
+      &RopeEditorSnapshot::new(1, Rope::from(text)),
+      range.clone(),
+      &test_theme(),
+    );
+
+    // The spans must tile the requested range exactly: they start at
+    // `range.start`, end at `range.end`, and leave no gap in between.
+    assert_eq!(highlights.first().map(|(r, _)| r.start), Some(range.start));
+    assert_eq!(highlights.last().map(|(r, _)| r.end), Some(range.end));
+    for pair in highlights.windows(2) {
+      assert_eq!(pair[0].0.end, pair[1].0.start, "spans must be contiguous");
+    }
+
+    let by_start = |start: u64| {
+      highlights
+        .iter()
+        .find(|(r, _)| r.start == start)
+        .map(|(_, s)| *s)
+    };
+
+    // Styled fields keep their exact byte offsets on line 1 …
+    let timestamp = by_start(0).expect("timestamp span on line 1");
+    assert!(timestamp.color.is_some());
+    let level = by_start(10).expect("level span on line 1");
+    assert!(level.color.is_some());
+    assert_eq!(level.font_weight, Some(FontWeight::BOLD));
+    let target = by_start(15).expect("target span on line 1");
+    assert!(target.color.is_some());
+
+    // … while the separator and the message render with the identity
+    // style, so the editor's base font and foreground color apply to them.
+    assert_eq!(by_start(9), Some(HighlightStyle::default()));
+    assert_eq!(by_start(31), Some(HighlightStyle::default()));
+
+    // Line 2 is styled the same way — the bug was every line after the
+    // first losing its runs and falling back to the platform default font.
+    let second = first_line.len() as u64;
+    let level2 = by_start(second + 11).expect("level span on line 2");
+    assert!(level2.color.is_some());
+    assert_eq!(level2.font_weight, Some(FontWeight::BOLD));
+    assert_eq!(
+      by_start(second + 26),
+      Some(HighlightStyle::default()),
+      "message on line 2 must keep the identity style"
+    );
+  }
+
+  #[test]
+  fn highlight_range_clips_to_the_requested_range() {
+    let first_line = "00:01.335 DEBUG craftoria::app: first\n";
+    let text = "00:01.335 DEBUG craftoria::app: first\n00:02.000  INFO craftoria: second\n";
+    let snapshot = RopeEditorSnapshot::new(1, Rope::from(text));
+    let highlighter = synced_highlighter(text);
+
+    // A window that starts inside line 1's target field and ends inside
+    // line 2's target field must still be tiled from `range.start` to
+    // `range.end`, with the clipped styled spans keeping their colors.
+    let range = 25u64..(first_line.len() as u64 + 18);
+    let highlights = highlighter.highlight_range(&snapshot, range.clone(), &test_theme());
+    assert_eq!(highlights.first().map(|(r, _)| r.start), Some(range.start));
+    assert_eq!(highlights.last().map(|(r, _)| r.end), Some(range.end));
+    for pair in highlights.windows(2) {
+      assert_eq!(pair[0].0.end, pair[1].0.start, "spans must be contiguous");
+    }
+
+    let by_start = |start: u64| {
+      highlights
+        .iter()
+        .find(|(r, _)| r.start == start)
+        .map(|(_, s)| *s)
+    };
+    let second = first_line.len() as u64;
+
+    // Clipped head: line 1's target field is styled from `range.start` on.
+    let clipped_target = by_start(range.start).expect("clipped target span");
+    assert!(clipped_target.color.is_some());
+    // Timestamp and level of line 2 land at their absolute offsets.
+    assert!(
+      by_start(second)
+        .expect("timestamp span on line 2")
+        .color
+        .is_some()
+    );
+    let level2 = by_start(second + 11).expect("level span on line 2");
+    assert_eq!(level2.font_weight, Some(FontWeight::BOLD));
+    // Clipped tail: line 2's target field runs up to `range.end`.
+    let tail = highlights.last().cloned();
+    assert!(
+      tail
+        .as_ref()
+        .is_some_and(|(_, style)| style.color.is_some())
+    );
+    assert_eq!(tail.as_ref().map(|(r, _)| r.end), Some(range.end));
   }
 
   #[test]
