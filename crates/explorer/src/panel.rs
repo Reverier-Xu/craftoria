@@ -86,61 +86,86 @@ impl ExplorerPanel {
     }
   }
 
-  /// Lazy-loads expanded folders and opens directory listings.
+  /// Handles the tree's events: expanding a folder loads its children
+  /// immediately (idempotent — whatever the render-time trigger already
+  /// loaded is skipped), double-clicking opens a directory listing.
   fn handle_tree_event(&mut self, event: &TreeEvent, window: &mut Window, cx: &mut Context<Self>) {
     match event {
-      TreeEvent::Select(ix) => self.load_expanded(*ix, cx),
-      TreeEvent::DoubleClicked(ix) => {
-        let Some(entry) = self.tree_state.read(cx).model().entry(*ix) else {
-          return;
-        };
-        let path = self
-          .root
-          .join(fs_tree::relative_path(entry.item().id.as_ref()));
-        if entry.is_folder() {
-          dir_list::open(&self.dock, path, window, cx);
-        } else {
-          tracing::info!(path = %path.display(), "requested to open a file");
-        }
-      }
+      TreeEvent::Select(_) => self.load_pending(cx),
+      TreeEvent::DoubleClicked(ix) => self.open_entry(*ix, window, cx),
       _ => {}
     }
   }
 
-  /// Replaces the pending placeholder of a just-expanded folder with its
-  /// real children (two levels: the folder's entries plus emptiness peeks).
-  fn load_expanded(&mut self, ix: usize, cx: &mut Context<Self>) {
-    let id = {
+  /// Double-clicked folders open a directory listing; files log for now.
+  fn open_entry(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+    let (path, is_dir) = {
       let Some(entry) = self.tree_state.read(cx).model().entry(ix) else {
         return;
       };
-      if !entry.is_folder() || !entry.is_expanded() {
-        return;
-      }
-      let pending = self
-        .roots
-        .iter()
-        .any(|root| root.id.as_ref() == entry.item().id.as_ref() && fs_tree::is_pending(root));
-      if !pending {
-        return;
-      }
-      entry.item().id.to_string()
+      (
+        self
+          .root
+          .join(fs_tree::relative_path(entry.item().id.as_ref())),
+        entry.is_folder(),
+      )
     };
 
-    let dir = self.root.join(fs_tree::relative_path(&id));
+    if !is_dir {
+      tracing::info!(path = %path.display(), "requested to open a file");
+      return;
+    }
+
+    // Opening a panel mutates the dock area, which re-activates the panels
+    // of the target tab group — potentially including one whose update we
+    // would be nested inside. Defer past the current update batch.
+    let dock = self.dock.clone();
+    window.defer(cx, move |window, cx| {
+      dir_list::open(&dock, path, window, cx);
+    });
+  }
+
+  /// The ids of expanded folders still holding a pending placeholder, in
+  /// display order.
+  fn pending_expanded_ids(&self, cx: &App) -> Vec<String> {
+    self
+      .tree_state
+      .read(cx)
+      .model()
+      .entries()
+      .iter()
+      .filter(|entry| entry.is_folder() && entry.is_expanded())
+      .map(|entry| entry.item().id.to_string())
+      .filter(|id| fs_tree::find_item(&self.roots, id).is_some_and(fs_tree::is_pending))
+      .collect()
+  }
+
+  /// Loads the children of every expanded folder that still carries a
+  /// pending placeholder — the lazy loading step (each folder costs one
+  /// level listing plus the emptiness peeks; see [`fs_tree::dir_items`]).
+  fn load_pending(&mut self, cx: &mut Context<Self>) {
+    let ids = self.pending_expanded_ids(cx);
+    if ids.is_empty() {
+      return;
+    }
 
     let mut roots = self.roots.clone();
-    let mut children = fs_tree::dir_items(&dir, &id);
-    if !replace_children(&mut roots, &id, &mut children) {
+    let mut matched = 0;
+    for id in &ids {
+      if fs_tree::load_folder(&mut roots, &self.root, id) {
+        matched += 1;
+      }
+    }
+    if matched == 0 {
       return;
-    };
-    self.roots = roots.clone();
+    }
 
+    self.roots = roots.clone();
     self.tree_state.update(cx, |state, cx| {
       state.model_mut().update_items(roots);
       cx.notify();
     });
-    tracing::debug!(dir = %dir.display(), "expanded a workspace folder");
+    tracing::debug!(folders = matched, "expanded workspace folders");
   }
 
   /// Re-scans the workspace root, preserving the expansion of folders that
@@ -153,21 +178,6 @@ impl ExplorerPanel {
       cx.notify();
     });
   }
-}
-
-/// Replaces the children of the item with id `id`; `false` when no such
-/// item exists. Consumes `children` on success only.
-fn replace_children(items: &mut [TreeItem], id: &str, children: &mut Vec<TreeItem>) -> bool {
-  for item in items.iter_mut() {
-    if item.id.as_ref() == id {
-      item.children = std::mem::take(children);
-      return true;
-    }
-    if replace_children(&mut item.children, id, children) {
-      return true;
-    }
-  }
-  false
 }
 
 impl Panel for ExplorerPanel {
@@ -220,7 +230,16 @@ impl Focusable for ExplorerPanel {
 }
 
 impl Render for ExplorerPanel {
-  fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+  fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    // Loading is driven by the tree state rather than by the tree's events:
+    // the widget expands folders on click *and* on keyboard actions
+    // (Enter/Left/Right emit nothing), so a render-time trigger is the one
+    // hook every expansion path reaches. The work itself is deferred to
+    // stay out of this render.
+    if !self.pending_expanded_ids(cx).is_empty() {
+      cx.defer_in(window, |this, _window, cx| this.load_pending(cx));
+    }
+
     let is_empty = self.tree_state.read(cx).model().is_empty();
 
     v_flex()

@@ -78,6 +78,45 @@ pub(crate) fn relative_path(id: &str) -> &str {
   id.trim_start_matches('/')
 }
 
+/// Finds the item with id `id` anywhere in the tree.
+pub(crate) fn find_item<'a>(items: &'a [TreeItem], id: &str) -> Option<&'a TreeItem> {
+  for item in items {
+    if item.id.as_ref() == id {
+      return Some(item);
+    }
+    if let Some(found) = find_item(&item.children, id) {
+      return Some(found);
+    }
+  }
+  None
+}
+
+/// Replaces the children of the item with id `id`; `false` when no such
+/// item exists. Moves out of `children` on success only.
+pub(crate) fn replace_children(
+  items: &mut [TreeItem], id: &str, children: &mut Vec<TreeItem>,
+) -> bool {
+  for item in items.iter_mut() {
+    if item.id.as_ref() == id {
+      item.children = std::mem::take(children);
+      return true;
+    }
+    if replace_children(&mut item.children, id, children) {
+      return true;
+    }
+  }
+  false
+}
+
+/// The lazy loading step for one folder: replaces its pending placeholder
+/// with a fresh listing (see [`dir_items`]) of `workspace/id`. Returns
+/// `false` when `id` is unknown to `roots`.
+pub(crate) fn load_folder(roots: &mut [TreeItem], workspace: &Path, id: &str) -> bool {
+  let dir = workspace.join(relative_path(id));
+  let mut children = dir_items(&dir, id);
+  replace_children(roots, id, &mut children)
+}
+
 /// Lists one directory non-recursively: dotfiles and [`IGNORED_DIRS`]
 /// skipped, folders first, then names.
 ///
@@ -210,6 +249,42 @@ mod tests {
     assert_eq!(children[0].id.as_ref(), "/src/nested");
     assert!(is_pending(&children[0]));
 
+    std::fs::remove_dir_all(&root).unwrap();
+  }
+
+  #[test]
+  fn nested_folders_load_level_by_level() {
+    let root = fixture("nested");
+    let mut roots = dir_items(&root, "");
+
+    // Level 1: `src` holds a placeholder until expanded …
+    assert!(is_pending(find_item(&roots, "/src").unwrap()));
+    assert!(load_folder(&mut roots, &root, "/src"));
+
+    // … then level 2 (`src/nested`) becomes visible, still pending. This
+    // used to be the dead end: a root-only search never found it, so the
+    // placeholder stayed forever.
+    let nested = find_item(&roots, "/src/nested").unwrap();
+    assert!(is_pending(nested));
+    assert!(load_folder(&mut roots, &root, "/src/nested"));
+
+    // Level 3 is real content now, and unrelated siblings were untouched.
+    let nested = find_item(&roots, "/src/nested").unwrap();
+    assert!(!is_pending(nested));
+    let names: Vec<&str> = nested
+      .children
+      .iter()
+      .map(|item| item.label.as_ref())
+      .collect();
+    assert_eq!(names, vec!["mod.rs"]);
+    assert!(!is_pending(find_item(&roots, "/src").unwrap()));
+  }
+
+  #[test]
+  fn loading_an_unknown_id_changes_nothing() {
+    let root = fixture("unknown-id");
+    let mut roots = dir_items(&root, "");
+    assert!(!load_folder(&mut roots, &root, "/nope"));
     std::fs::remove_dir_all(&root).unwrap();
   }
 

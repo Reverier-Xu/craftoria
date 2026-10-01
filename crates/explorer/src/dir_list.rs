@@ -135,11 +135,19 @@ impl DirListPanel {
     };
 
     let path = self.dir.join(&row.name);
-    if row.is_dir {
-      open(&self.dock, path, window, cx);
-    } else {
+    if !row.is_dir {
       tracing::info!(path = %path.display(), "requested to open a file");
+      return;
     }
+
+    // Opening a panel mutates the dock area, which re-activates the panels
+    // of the target tab group — including this very listing when it is the
+    // active one. That would be a re-entrant entity update, so defer past
+    // the current update batch.
+    let dock = self.dock.clone();
+    window.defer(cx, move |window, cx| {
+      open(&dock, path, window, cx);
+    });
   }
 
   /// Re-lists the directory.
