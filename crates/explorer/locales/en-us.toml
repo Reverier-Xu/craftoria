@@ -1,0 +1,13 @@
+[tech.woooo.craft.ext.explorer.panel]
+empty   = "This workspace is empty"
+refresh = "Refresh"
+title   = "Explorer"
+
+[tech.woooo.craft.ext.explorer.dir_list.col]
+kind = "Kind"
+name = "Name"
+size = "Size"
+
+[tech.woooo.craft.ext.explorer.dir_list.kind]
+dir  = "Folder"
+file = "File"

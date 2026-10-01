@@ -10,10 +10,6 @@ tips                = "提示"
 [tech.woooo.craft.panel.logs]
 title = "日誌"
 
-[tech.woooo.craft.panel.explorer]
-description = "工作區檔案與專案資源將在此呈現。"
-title       = "檔案總管"
-
 [tech.woooo.craft.panel.welcome]
 description = "建模、渲染與媒體工具將停駐於此。日誌輸出會在底部停駐區即時呈現。"
 title       = "歡迎"

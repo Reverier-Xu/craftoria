@@ -50,10 +50,26 @@ fn install_tracing(log_level: Option<&str>) -> Result<String, ShellError> {
 fn dispatch(cli: Cli, filter: String) -> Result<(), ShellError> {
   match cli.command.unwrap_or(Command::Gui) {
     Command::Info => commands::info::run(),
-    Command::Gui => craftoria_workbench::run(craftoria_workbench::GuiOptions {
-      reset_layout: cli.reset_layout,
-      log_filter: filter,
-    })
-    .map_err(ShellError::from),
+    Command::Gui => {
+      register_extensions();
+      craftoria_workbench::run(craftoria_workbench::GuiOptions {
+        reset_layout: cli.reset_layout,
+        log_filter: filter,
+      })
+      .map_err(ShellError::from)
+    }
   }
+}
+
+/// The composition root: every extension that ships with craftoria
+/// registers here, before the workbench opens its first window and flushes
+/// the contributions. Built-in extensions and future dynamic plugins take
+/// the same path.
+fn register_extensions() {
+  craftoria_exthost::extension::register_extension(std::sync::Arc::new(
+    craftoria_workbench::WorkbenchExtension::new(),
+  ));
+  craftoria_exthost::extension::register_extension(std::sync::Arc::new(
+    craftoria_explorer::ExplorerExtension::new(),
+  ));
 }

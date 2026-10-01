@@ -1,16 +1,23 @@
-//! The workbench's built-in translations.
+//! The workbench's built-in extension: the panels and locale catalogs the
+//! shell itself contributes.
 //!
-//! The four locale catalogs are embedded at compile time and contributed to
-//! the extension host through the same [`Extension`] contract a future
-//! plugin will use: there is deliberately no separate registration path for
-//! built-in UI strings. Keys live in the core `tech.woooo.craft` domain;
-//! call sites resolve them through
-//! [`craftoria_exthost::i18n::tr_static`].
+//! Going through the same [`Extension`] contract as every other
+//! contributor keeps exactly one registration path: the log console and
+//! the welcome placeholder dock exactly like an external extension's
+//! panels would, and the composition root (the `craftoria` shell)
+//! registers this extension alongside the real ones before the first
+//! window opens.
+
+use std::sync::Arc;
 
 use craftoria_exthost::{
   extension::{Extension, ExtensionMetadata},
   i18n::LocaleCatalog,
+  panel::{PanelBuilder, PanelContribution, PanelPlacement, PanelRole},
 };
+use woocraft::{DockPlacement, gpui::AppContext as _};
+
+use crate::panels::{LogPanel, PlaceholderPanel};
 
 /// The embedded catalogs, as `(locale, TOML text)` pairs. Locale spellings
 /// are the canonical ones woocraft normalizes `zh-cn`/`zh-tw` into.
@@ -40,12 +47,12 @@ fn catalogs() -> Vec<LocaleCatalog> {
 
 /// The built-in workbench extension.
 #[derive(Debug, Clone)]
-pub(crate) struct WorkbenchExtension {
+pub struct WorkbenchExtension {
   metadata: ExtensionMetadata,
 }
 
 impl WorkbenchExtension {
-  pub(crate) fn new() -> Self {
+  pub fn new() -> Self {
     Self {
       metadata: ExtensionMetadata {
         id: "workbench".into(),
@@ -70,6 +77,30 @@ impl Extension for WorkbenchExtension {
 
   fn translations(&self) -> Vec<LocaleCatalog> {
     catalogs()
+  }
+
+  fn panels(&self) -> Vec<PanelContribution> {
+    let logs: PanelBuilder =
+      Arc::new(|_dock, _state, _info, window, cx| Box::new(cx.new(|cx| LogPanel::new(window, cx))));
+    let welcome: PanelBuilder =
+      Arc::new(|_dock, _state, _info, _window, cx| Box::new(cx.new(PlaceholderPanel::welcome)));
+
+    vec![
+      PanelContribution {
+        name: LogPanel::PANEL_NAME.into(),
+        role: PanelRole::Persistent(
+          PanelPlacement::docked(DockPlacement::Bottom)
+            .with_size(woocraft::gpui::px(240.))
+            .expanded(),
+        ),
+        build: logs,
+      },
+      PanelContribution {
+        name: PlaceholderPanel::WELCOME_NAME.into(),
+        role: PanelRole::Persistent(PanelPlacement::docked(DockPlacement::Center).expanded()),
+        build: welcome,
+      },
+    ]
   }
 }
 

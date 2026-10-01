@@ -19,3 +19,4 @@
 
 pub mod extension;
 pub mod i18n;
+pub mod panel;

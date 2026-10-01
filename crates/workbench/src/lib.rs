@@ -13,12 +13,13 @@ pub mod logs;
 pub mod panels;
 
 mod error;
+mod extension;
 mod layout;
 mod log_console;
 mod paths;
 mod settings;
-mod translations;
 
 pub use app::{GuiOptions, run};
 pub use error::WorkbenchError;
+pub use extension::WorkbenchExtension;
 pub use settings::Settings;

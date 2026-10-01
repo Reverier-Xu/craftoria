@@ -14,9 +14,12 @@
 
 use std::sync::{Arc, LazyLock, RwLock};
 
-use woocraft::gpui::SharedString;
+use woocraft::gpui::{App, SharedString};
 
-use crate::i18n::{self, LocaleCatalog};
+use crate::{
+  i18n::{self, LocaleCatalog},
+  panel::PanelContribution,
+};
 
 /// Who an extension is: stable identity plus display metadata.
 ///
@@ -41,7 +44,9 @@ pub struct ExtensionMetadata {
 ///
 /// Keep implementations cheap and synchronous: the host calls them once at
 /// startup (and, later, at plugin activation). Anything heavier belongs
-/// behind the contribution data it returns.
+/// behind the contribution data it returns. Beyond
+/// [`translations`](Extension::translations), contributions must stay plain
+/// data — the host owns every policy decision about how to use them.
 pub trait Extension: Send + Sync {
   /// The extension identity.
   fn metadata(&self) -> &ExtensionMetadata;
@@ -51,6 +56,13 @@ pub trait Extension: Send + Sync {
   /// modules use core keys (`tech.woooo.craft.…`), extensions their own
   /// subtree built with [`i18n::craftoria_ext_key`].
   fn translations(&self) -> Vec<LocaleCatalog> {
+    Vec::new()
+  }
+
+  /// Dock panels this extension contributes (see
+  /// [`crate::panel`]). Contribution order is extension registration
+  /// order.
+  fn panels(&self) -> Vec<PanelContribution> {
     Vec::new()
   }
 }
@@ -88,43 +100,68 @@ pub fn extensions() -> Vec<Arc<dyn Extension>> {
   extensions_locked().clone()
 }
 
-/// Flushes every registered extension's contributions into the host.
+/// Flushes every registered extension's contributions into the host:
+/// translations into the shared i18n pool, panel builders into woocraft's
+/// panel registry (so saved dock layouts restore contributed panels by
+/// name).
 ///
-/// Called once at startup, after the built-in modules registered their
+/// Called once at startup, after the composition root registered its
 /// extensions and before the first window opens. Catalogs that fail domain
 /// validation are skipped with a warning — a broken catalog must not take
 /// the workbench down.
-pub fn init() {
+pub fn init(cx: &mut App) {
   let extensions = extensions_locked().clone();
   for extension in &extensions {
-    let metadata = extension.metadata();
-    for catalog in extension.translations() {
-      let locale = catalog.locale().to_string();
-      let count = catalog.translations().len();
-      let out_of_domain = catalog
-        .translations()
-        .keys()
-        .any(|key| !key.starts_with(i18n::CRAFTORIA_I18N_DOMAIN));
+    flush_translations(extension);
+    register_panels(extension, cx);
+  }
+}
 
-      if out_of_domain {
-        // `from_toml` already rejects out-of-domain keys, so this only
-        // guards catalogs built through other constructors.
-        tracing::warn!(
-          extension = %metadata.id,
-          locale = %locale,
-          "skipping a catalog outside the craftoria i18n domain"
-        );
-        continue;
-      }
+fn flush_translations(extension: &Arc<dyn Extension>) {
+  let metadata = extension.metadata();
+  for catalog in extension.translations() {
+    let locale = catalog.locale().to_string();
+    let count = catalog.translations().len();
+    let out_of_domain = catalog
+      .translations()
+      .keys()
+      .any(|key| !key.starts_with(i18n::CRAFTORIA_I18N_DOMAIN));
 
-      i18n::register_catalog(catalog);
-      tracing::info!(
+    if out_of_domain {
+      // `from_toml` already rejects out-of-domain keys, so this only
+      // guards catalogs built through other constructors.
+      tracing::warn!(
         extension = %metadata.id,
         locale = %locale,
-        keys = count,
-        "loaded extension translations"
+        "skipping a catalog outside the craftoria i18n domain"
       );
+      continue;
     }
+
+    i18n::register_catalog(catalog);
+    tracing::info!(
+      extension = %metadata.id,
+      locale = %locale,
+      keys = count,
+      "loaded extension translations"
+    );
+  }
+}
+
+fn register_panels(extension: &Arc<dyn Extension>, cx: &mut App) {
+  let metadata = extension.metadata();
+  for contribution in extension.panels() {
+    let build = contribution.build.clone();
+    woocraft::register_panel(
+      cx,
+      &contribution.name,
+      move |dock_area, state, info, window, cx| build(dock_area, state, info, window, cx),
+    );
+    tracing::info!(
+      extension = %metadata.id,
+      panel = %contribution.name,
+      "registered a contributed panel"
+    );
   }
 }
 

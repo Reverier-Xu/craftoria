@@ -1,0 +1,13 @@
+[tech.woooo.craft.ext.explorer.panel]
+empty   = "このワークスペースは空です"
+refresh = "更新"
+title   = "エクスプローラー"
+
+[tech.woooo.craft.ext.explorer.dir_list.col]
+kind = "種類"
+name = "名前"
+size = "サイズ"
+
+[tech.woooo.craft.ext.explorer.dir_list.kind]
+dir  = "フォルダー"
+file = "ファイル"

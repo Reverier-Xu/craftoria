@@ -25,7 +25,9 @@ thiserror          = { workspace = true }
 tracing            = { workspace = true }
 tracing-subscriber = { workspace = true }
 
-craftoria-workbench = { path = "../workbench" }
+craftoria-explorer  = { workspace = true }
+craftoria-exthost   = { workspace = true }
+craftoria-workbench = { workspace = true }
 
 [lints]
 workspace = true

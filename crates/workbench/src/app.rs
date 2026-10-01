@@ -1,6 +1,6 @@
 //! The workbench root view and the desktop application entry point.
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use craftoria_exthost as exthost;
 use woocraft::{
@@ -15,9 +15,7 @@ use woocraft::{
 
 use crate::{
   WorkbenchError, layout, logs,
-  panels::{LogPanel, PlaceholderPanel},
   settings::{self, Settings},
-  translations,
 };
 
 /// Debounce applied to dock layout persistence: `LayoutChanged` fires for
@@ -45,14 +43,13 @@ pub fn run(options: GuiOptions) -> Result<(), WorkbenchError> {
     .with_assets(woocraft::Assets)
     .run(move |cx: &mut App| {
       woocraft::init(cx);
-      crate::panels::register(cx);
 
-      // Contribute the built-in UI strings through the extension host —
-      // the same path a future plugin takes — and apply the saved locale
-      // on top of the environment-derived default before any window
-      // opens.
-      exthost::extension::register_extension(Arc::new(translations::WorkbenchExtension::new()));
-      exthost::extension::init();
+      // The composition root (the shell) registered its extensions by
+      // now; flush their contributions — panel builders into woocraft's
+      // registry (so saved dock layouts restore), strings into the shared
+      // i18n pool — and apply the saved locale on top of the
+      // environment-derived default before any window opens.
+      exthost::extension::init(cx);
 
       let settings_path = settings::settings_file();
       let settings = match settings_path.as_deref() {
@@ -208,24 +205,69 @@ impl Workbench {
     }
   }
 
-  /// The default layout: explorer on the left, welcome in the center, log
-  /// streaming in the bottom dock.
+  /// The default layout, composed from the extensions' persistent panel
+  /// contributions: within a dock, extension registration order wins, and
+  /// the first contribution's placement hint picks the dock's size and
+  /// initial collapse state.
   fn default_layout(dock_area: &Entity<DockArea>, window: &mut Window, cx: &mut App) {
     tracing::debug!("applying the default dock layout");
-    let explorer = cx.new(PlaceholderPanel::explorer);
-    let welcome = cx.new(PlaceholderPanel::welcome);
-    let logs = cx.new(|cx| LogPanel::new(window, cx));
 
-    dock_area.update(cx, |dock, cx| {
-      dock.add_to_left_dock(Arc::new(explorer), window, cx);
-      dock.add_to_center(Arc::new(welcome), window, cx);
-      dock.add_to_bottom_dock(Arc::new(logs), window, cx);
-      dock.set_dock_size(DockPlacement::Left, px(260.), window, cx);
-      dock.set_dock_size(DockPlacement::Bottom, px(240.), window, cx);
-      // New docks start collapsed; open the ones the default layout uses.
-      dock.set_dock_collapsed(DockPlacement::Left, false, window, cx);
-      dock.set_dock_collapsed(DockPlacement::Bottom, false, window, cx);
-    });
+    let contributions = exthost::panel::contributions();
+    for dock in [
+      DockPlacement::Left,
+      DockPlacement::Center,
+      DockPlacement::Bottom,
+      DockPlacement::Right,
+    ] {
+      let placed = contributions
+        .iter()
+        .filter_map(|contribution| match contribution.role {
+          exthost::panel::PanelRole::Persistent(placement) if placement.dock == dock => {
+            Some((contribution, placement))
+          }
+          _ => None,
+        })
+        .collect::<Vec<_>>();
+      if placed.is_empty() {
+        continue;
+      }
+
+      for (contribution, _) in &placed {
+        let Some(panel) = exthost::panel::build(
+          contribution.name.as_ref(),
+          dock_area.downgrade(),
+          window,
+          cx,
+        ) else {
+          continue;
+        };
+        match dock {
+          DockPlacement::Center => {
+            dock_area.update(cx, |area, cx| area.add_to_center(panel, window, cx))
+          }
+          DockPlacement::Left => {
+            dock_area.update(cx, |area, cx| area.add_to_left_dock(panel, window, cx))
+          }
+          DockPlacement::Right => {
+            dock_area.update(cx, |area, cx| area.add_to_right_dock(panel, window, cx))
+          }
+          DockPlacement::Bottom => {
+            dock_area.update(cx, |area, cx| area.add_to_bottom_dock(panel, window, cx))
+          }
+        }
+      }
+
+      // The center dock has no size or collapse state of its own.
+      if dock != DockPlacement::Center {
+        let placement = placed[0].1;
+        if let Some(size) = placement.size {
+          dock_area.update(cx, |area, cx| area.set_dock_size(dock, size, window, cx));
+        }
+        dock_area.update(cx, |area, cx| {
+          area.set_dock_collapsed(dock, placement.collapsed, window, cx)
+        });
+      }
+    }
   }
 
   fn schedule_layout_save(&mut self, cx: &mut Context<Self>) {

@@ -36,7 +36,9 @@ woocraft = { version = "0.6", default-features = false, features = [
 ] }
 woocraft-terminal = "0.6"
 
-craftoria-exthost = { path = "crates/exthost" }
+craftoria-explorer  = { path = "crates/explorer" }
+craftoria-exthost   = { path = "crates/exthost" }
+craftoria-workbench = { path = "crates/workbench" }
 
 [profile.release]
 codegen-units = 1

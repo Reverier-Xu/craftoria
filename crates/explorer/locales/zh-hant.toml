@@ -1,0 +1,13 @@
+[tech.woooo.craft.ext.explorer.panel]
+empty   = "此工作區為空"
+refresh = "重新整理"
+title   = "檔案總管"
+
+[tech.woooo.craft.ext.explorer.dir_list.col]
+kind = "類型"
+name = "名稱"
+size = "大小"
+
+[tech.woooo.craft.ext.explorer.dir_list.kind]
+dir  = "資料夾"
+file = "檔案"

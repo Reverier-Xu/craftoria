@@ -10,10 +10,6 @@ tips                = "ヒント"
 [tech.woooo.craft.panel.logs]
 title = "ログ"
 
-[tech.woooo.craft.panel.explorer]
-description = "ワークスペースのファイルとプロジェクトアセットはここに表示されます。"
-title       = "エクスプローラー"
-
 [tech.woooo.craft.panel.welcome]
 description = "モデリング・レンダリング・メディアツールがここにドッキングします。ログ出力は下部ドックにストリーム表示されます。"
 title       = "ようこそ"

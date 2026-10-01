@@ -1,0 +1,13 @@
+[tech.woooo.craft.ext.explorer.panel]
+empty   = "此工作区为空"
+refresh = "刷新"
+title   = "资源管理器"
+
+[tech.woooo.craft.ext.explorer.dir_list.col]
+kind = "类型"
+name = "名称"
+size = "大小"
+
+[tech.woooo.craft.ext.explorer.dir_list.kind]
+dir  = "文件夹"
+file = "文件"
