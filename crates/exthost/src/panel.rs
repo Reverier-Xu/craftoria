@@ -100,8 +100,10 @@ pub enum PanelRole {
 #[derive(Clone)]
 pub struct PanelContribution {
   /// The stable registration key — the contribution's
-  /// [`woocraft::Panel::panel_name`]. It must never change once layouts
-  /// containing it have been persisted.
+  /// [`woocraft::Panel::panel_name`]. Once craftoria ships, keys must
+  /// stay stable; while it hasn't, rename freely and bump the workbench's
+  /// layout version so persisted layouts built on stale keys are
+  /// discarded instead of migrated.
   pub name: SharedString,
   /// Whether the panel is part of the default layout or opened on demand.
   pub role: PanelRole,

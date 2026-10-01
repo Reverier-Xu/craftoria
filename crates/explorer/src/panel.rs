@@ -27,9 +27,10 @@ use woocraft::{
 
 use crate::{dir_list, fs_tree};
 
-/// Stable panel registration key — inherited from the placeholder this
-/// panel replaces, so persisted layouts keep restoring.
-pub(crate) const PANEL_NAME: &str = "craftoria.explorer";
+/// Stable panel registration key. Extension-owned panels live under
+/// `craftoria.<extension>.<panel>` so independent extensions can never
+/// collide.
+pub(crate) const PANEL_NAME: &str = "craftoria.explorer.tree";
 
 /// i18n keys of this panel, in the explorer's extension subtree.
 mod keys {
