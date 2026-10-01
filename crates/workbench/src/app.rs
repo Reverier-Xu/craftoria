@@ -2,9 +2,10 @@
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+use craftoria_exthost as exthost;
 use woocraft::{
-  ActiveTheme, Button, ButtonVariants as _, Divider, DockArea, DockEvent, DockPlacement, Icon,
-  IconName, Size, StyleSized as _, TitleBar, Tooltip,
+  ActiveTheme, Button, ButtonVariants as _, Divider, DockArea, DockEvent, DockPlacement,
+  DropdownMenu as _, Icon, IconName, PopupMenuItem, Size, StyleSized as _, TitleBar, Tooltip,
   gpui::{
     App, AppContext as _, Bounds, Context, Entity, FocusHandle, Focusable, IntoElement,
     ParentElement as _, Render, Styled as _, Window, WindowBounds, WindowOptions, div, px, size,
@@ -15,6 +16,8 @@ use woocraft::{
 use crate::{
   WorkbenchError, layout, logs,
   panels::{LogPanel, PlaceholderPanel},
+  settings::{self, Settings},
+  translations,
 };
 
 /// Debounce applied to dock layout persistence: `LayoutChanged` fires for
@@ -43,12 +46,39 @@ pub fn run(options: GuiOptions) -> Result<(), WorkbenchError> {
     .run(move |cx: &mut App| {
       woocraft::init(cx);
       crate::panels::register(cx);
+
+      // Contribute the built-in UI strings through the extension host —
+      // the same path a future plugin takes — and apply the saved locale
+      // on top of the environment-derived default before any window
+      // opens.
+      exthost::extension::register_extension(Arc::new(translations::WorkbenchExtension::new()));
+      exthost::extension::init();
+
+      let settings_path = settings::settings_file();
+      let settings = match settings_path.as_deref() {
+        Some(path) => match settings::load(path) {
+          Ok(settings) => settings,
+          Err(error) => {
+            tracing::warn!(%error, "ignoring the saved workbench settings");
+            Settings::default()
+          }
+        },
+        None => Settings::default(),
+      };
+      if let Some(locale) = settings.locale.clone() {
+        exthost::i18n::set_locale(locale, cx);
+      }
+
       cx.activate(true);
 
       let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);
       let options = options.clone();
+      let startup = StartupSettings {
+        settings,
+        file: settings_path,
+      };
       match cx.open_window(window_options(bounds), move |window, cx| {
-        cx.new(|cx| Workbench::new(options, window, cx))
+        cx.new(|cx| Workbench::new(options, startup, window, cx))
       }) {
         Ok(_window) => tracing::debug!("main window opened"),
         Err(error) => {
@@ -75,6 +105,13 @@ fn window_options(bounds: Bounds<woocraft::gpui::Pixels>) -> WindowOptions {
   }
 }
 
+/// The settings loaded at startup, handed over to the root view so it can
+/// persist later changes back to the same file.
+struct StartupSettings {
+  settings: Settings,
+  file: Option<PathBuf>,
+}
+
 /// The root view: title bar on top, dock area in the middle, status bar at
 /// the bottom.
 struct Workbench {
@@ -82,11 +119,15 @@ struct Workbench {
   log_filter: String,
   layout_file: Option<PathBuf>,
   layout_save_scheduled: bool,
+  settings: Settings,
+  settings_file: Option<PathBuf>,
   focus_handle: FocusHandle,
 }
 
 impl Workbench {
-  fn new(options: GuiOptions, window: &mut Window, cx: &mut Context<Self>) -> Self {
+  fn new(
+    options: GuiOptions, startup: StartupSettings, window: &mut Window, cx: &mut Context<Self>,
+  ) -> Self {
     let dock_area =
       cx.new(|cx| DockArea::new("craftoria.main", Some(layout::LAYOUT_VERSION), window, cx));
     let layout_file = layout::layout_file();
@@ -127,6 +168,8 @@ impl Workbench {
       log_filter: options.log_filter,
       layout_file,
       layout_save_scheduled: false,
+      settings: startup.settings,
+      settings_file: startup.file,
       focus_handle: cx.focus_handle(),
     }
   }
@@ -211,11 +254,59 @@ impl Workbench {
     }
   }
 
+  /// Switches the UI locale and persists the choice.
+  fn select_locale(&mut self, locale: &str, cx: &mut Context<Self>) {
+    exthost::i18n::set_locale(locale, cx);
+    self.settings.locale = Some(locale.to_string());
+    self.save_settings();
+    cx.notify();
+  }
+
+  fn save_settings(&self) {
+    let Some(path) = self.settings_file.as_deref() else {
+      return;
+    };
+    match settings::save(path, &self.settings) {
+      Ok(()) => tracing::debug!(path = %path.display(), "saved the workbench settings"),
+      Err(error) => tracing::warn!(%error, "failed to save the workbench settings"),
+    }
+  }
+
   /// Standard status bar tier: the same medium container as the title bar.
   const STATUS_BAR_SIZE: Size = Size::Medium;
 
+  /// The locale picker: one checked entry per supported locale, switching
+  /// through [`Workbench::select_locale`].
+  fn language_picker(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    let this = cx.entity();
+    Button::new("craftoria-language")
+      .flat()
+      .icon(Icon::new(IconName::LocalLanguage))
+      .tooltip(|window, cx| {
+        Tooltip::new(exthost::i18n::tr_static("status_bar.language")).build(window, cx)
+      })
+      .dropdown_menu(move |mut menu, _window, _cx| {
+        let current = exthost::i18n::locale();
+        for locale in exthost::i18n::SUPPORTED_LOCALES {
+          let label = exthost::i18n::locale_display_name(locale);
+          let target = locale.to_string();
+          let this = this.clone();
+          menu = menu.item(
+            PopupMenuItem::label(label)
+              .checked(locale == current)
+              .on_click(move |_, _window, cx| {
+                let target = target.clone();
+                this.update(cx, |this, cx| this.select_locale(&target, cx));
+              }),
+          );
+        }
+        menu
+      })
+  }
+
   fn status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
     let muted = cx.theme().muted_foreground;
+    let total = logs::global().total();
     h_flex()
       .w_full()
       .flex_shrink_0()
@@ -227,14 +318,18 @@ impl Workbench {
         Button::new("craftoria-tips")
           .flat()
           .icon(Icon::new(IconName::Lightbulb))
-          .tooltip(|window, cx| Tooltip::new("Tips").build(window, cx)),
+          .tooltip(|window, cx| {
+            Tooltip::new(exthost::i18n::tr_static("status_bar.tips")).build(window, cx)
+          }),
       )
       .child(
         Button::new("craftoria-task-center")
           .flat()
           .icon(Icon::new(IconName::FlashFlow))
-          .label("No tasks")
-          .tooltip(|window, cx| Tooltip::new("Task Center").build(window, cx)),
+          .label(exthost::i18n::tr_static("status_bar.no_tasks"))
+          .tooltip(|window, cx| {
+            Tooltip::new(exthost::i18n::tr_static("status_bar.task_center")).build(window, cx)
+          }),
       )
       .child(div().flex_1())
       .child(
@@ -243,19 +338,29 @@ impl Workbench {
           .items_center()
           .text_color(muted)
           .child(format!("craftoria v{}", env!("CARGO_PKG_VERSION")))
-          .child(format!("{} log lines", logs::global().total()))
-          .child(format!("filter: {}", self.log_filter))
+          .child(exthost::i18n::tr_with(
+            "status_bar.log_lines",
+            &[("count", &total.to_string())],
+          ))
+          .child(exthost::i18n::tr_with(
+            "status_bar.filter",
+            &[("filter", self.log_filter.as_str())],
+          ))
           .child(format!(
             "{} / {}",
             std::env::consts::OS,
             std::env::consts::ARCH
           )),
       )
+      .child(self.language_picker(cx))
       .child(
         Button::new("craftoria-notification-center")
           .flat()
           .icon(Icon::new(IconName::AlertBadge))
-          .tooltip(|window, cx| Tooltip::new("Notification Center").build(window, cx)),
+          .tooltip(|window, cx| {
+            Tooltip::new(exthost::i18n::tr_static("status_bar.notification_center"))
+              .build(window, cx)
+          }),
       )
   }
 }

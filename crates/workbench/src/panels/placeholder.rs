@@ -1,6 +1,7 @@
 //! Placeholder panels that reserve dock regions until the real domain panels
 //! (modeling, rendering, media tools) land.
 
+use craftoria_exthost::i18n as exthost_i18n;
 use woocraft::{
   ActiveTheme, Icon, IconName, Panel, PanelEvent, Sizable, Size, StyledExt as _,
   gpui::{
@@ -44,20 +45,19 @@ impl PlaceholderPanel {
     }
   }
 
-  fn tab_title(&self) -> &'static str {
+  /// The i18n key of this panel's title.
+  fn title_key(&self) -> &'static str {
     match self.kind {
-      PlaceholderKind::Explorer => "Explorer",
-      PlaceholderKind::Welcome => "Welcome",
+      PlaceholderKind::Explorer => "panel.explorer.title",
+      PlaceholderKind::Welcome => "panel.welcome.title",
     }
   }
 
-  fn body(&self) -> &'static str {
+  /// The i18n key of this panel's description.
+  fn description_key(&self) -> &'static str {
     match self.kind {
-      PlaceholderKind::Explorer => "Workspace files and project assets will live here.",
-      PlaceholderKind::Welcome => {
-        "The modeling, rendering, and media tools will dock here. \
-         Log output streams in the bottom dock."
-      }
+      PlaceholderKind::Explorer => "panel.explorer.description",
+      PlaceholderKind::Welcome => "panel.welcome.description",
     }
   }
 
@@ -78,11 +78,11 @@ impl Panel for PlaceholderPanel {
   }
 
   fn tab_name(&self, _cx: &App) -> Option<SharedString> {
-    Some(self.tab_title().into())
+    Some(exthost_i18n::tr_static(self.title_key()))
   }
 
   fn title(&self, _cx: &App) -> SharedString {
-    self.tab_title().into()
+    exthost_i18n::tr_static(self.title_key())
   }
 
   fn icon(&self, _cx: &App) -> IconName {
@@ -116,14 +116,14 @@ impl Render for PlaceholderPanel {
         div()
           .font_semibold()
           .text_color(cx.theme().foreground)
-          .child(self.tab_title()),
+          .child(exthost_i18n::tr_static(self.title_key())),
       )
       .child(
         div()
           .max_w(px(420.))
           .text_center()
           .text_color(cx.theme().muted_foreground)
-          .child(self.body()),
+          .child(exthost_i18n::tr_static(self.description_key())),
       )
   }
 }

@@ -1,0 +1,19 @@
+[tech.woooo.craft.status_bar]
+filter              = "filter: %{filter}"
+language            = "Language"
+log_lines           = "%{count} log lines"
+no_tasks            = "No tasks"
+notification_center = "Notification Center"
+task_center         = "Task Center"
+tips                = "Tips"
+
+[tech.woooo.craft.panel.logs]
+title = "Logs"
+
+[tech.woooo.craft.panel.explorer]
+description = "Workspace files and project assets will live here."
+title       = "Explorer"
+
+[tech.woooo.craft.panel.welcome]
+description = "The modeling, rendering, and media tools will dock here. Log output streams in the bottom dock."
+title       = "Welcome"

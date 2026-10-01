@@ -9,6 +9,7 @@
 
 use std::time::Duration;
 
+use craftoria_exthost::i18n as exthost_i18n;
 use woocraft::{
   ActiveTheme, CodeEditor, EditorState, IconName, Panel, PanelEvent,
   gpui::{
@@ -84,11 +85,11 @@ impl Panel for LogPanel {
   }
 
   fn tab_name(&self, _cx: &App) -> Option<SharedString> {
-    Some("Logs".into())
+    Some(exthost_i18n::tr_static("panel.logs.title"))
   }
 
   fn title(&self, _cx: &App) -> SharedString {
-    "Logs".into()
+    exthost_i18n::tr_static("panel.logs.title")
   }
 
   fn icon(&self, _cx: &App) -> IconName {

@@ -25,4 +25,24 @@ pub enum WorkbenchError {
     #[source]
     source: std::io::Error,
   },
+  #[error("failed to read the workbench settings from `{}`: {source}", .path.display())]
+  ReadSettings {
+    path: PathBuf,
+    #[source]
+    source: std::io::Error,
+  },
+  #[error("failed to decode the workbench settings from `{}`: {source}", .path.display())]
+  DecodeSettings {
+    path: PathBuf,
+    #[source]
+    source: serde_json::Error,
+  },
+  #[error("failed to encode the workbench settings: {0}")]
+  EncodeSettings(#[source] serde_json::Error),
+  #[error("failed to write the workbench settings to `{}`: {source}", .path.display())]
+  WriteSettings {
+    path: PathBuf,
+    #[source]
+    source: std::io::Error,
+  },
 }

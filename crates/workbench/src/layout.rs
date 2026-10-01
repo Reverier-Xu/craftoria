@@ -8,30 +8,15 @@ use std::path::{Path, PathBuf};
 
 use woocraft::DockAreaState;
 
-use crate::error::WorkbenchError;
+use crate::{WorkbenchError, paths};
 
 /// Version of the persisted layout; bump when the panel set changes in
 /// incompatible ways.
 pub const LAYOUT_VERSION: usize = 1;
 
-/// The platform configuration directory of craftoria.
-fn config_dir() -> Option<PathBuf> {
-  #[cfg(target_os = "windows")]
-  {
-    std::env::var_os("APPDATA").map(|base| PathBuf::from(base).join("craftoria"))
-  }
-  #[cfg(not(target_os = "windows"))]
-  {
-    std::env::var_os("XDG_CONFIG_HOME")
-      .map(PathBuf::from)
-      .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
-      .map(|base| base.join("craftoria"))
-  }
-}
-
 /// The file the dock layout is persisted to, if a config dir is available.
 pub fn layout_file() -> Option<PathBuf> {
-  config_dir().map(|dir| dir.join("layout.json"))
+  paths::config_dir().map(|dir| dir.join("layout.json"))
 }
 
 /// Load a persisted dock layout; `Ok(None)` when no layout was saved yet.

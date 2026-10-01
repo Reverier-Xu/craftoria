@@ -1,0 +1,19 @@
+[tech.woooo.craft.status_bar]
+filter              = "过滤器：%{filter}"
+language            = "语言"
+log_lines           = "%{count} 行日志"
+no_tasks            = "暂无任务"
+notification_center = "通知中心"
+task_center         = "任务中心"
+tips                = "提示"
+
+[tech.woooo.craft.panel.logs]
+title = "日志"
+
+[tech.woooo.craft.panel.explorer]
+description = "工作区文件与项目资源将在此呈现。"
+title       = "资源管理器"
+
+[tech.woooo.craft.panel.welcome]
+description = "建模、渲染与媒体工具将停靠在此。日志输出在底部停靠区实时呈现。"
+title       = "欢迎"
